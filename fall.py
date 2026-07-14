@@ -1,4 +1,4 @@
-from world import World, Body
+from world import World, Body, Disk
 import pygame
 
 PIXELS_XN = 750
@@ -10,8 +10,8 @@ pygame.init()
 clock = pygame.time.Clock()
 screen = pygame.display.set_mode((PIXELS_XN, PIXELS_XN))
 running = True
-ball = Body(3, 10, 0, 0, 3, 0, 0, .1)
-ball2 = Body(7, 10, 0, 0, 3, 0, 0, .1)
+ball = Body(3, 10, 0, 0, 3, shape=Disk(.1))
+ball2 = Body(7, 10, 0, 0, 3, shape=Disk(.1))
 world = World(WORLD_FPS, PIXELS_XN/METERS_PER_PIXEL, PIXELS_XN/METERS_PER_PIXEL)
 world.add_body(ball, "ball")
 world.add_body(ball2, "ball2")
