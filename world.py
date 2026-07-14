@@ -2,7 +2,7 @@ import itertools
 import math
 
 class World:
-    def __init__(self, FPS, height, width, k=300, c=2.5, mu=0.8):
+    def __init__(self, FPS, height, width, k=30000, c=25, mu=0.8):
         self.dt = 1/FPS
         self.height = height
         self.k = k
@@ -11,6 +11,8 @@ class World:
         self.mu = mu
         self.bodies = {}
         self.springs = {}
+        self.bodies["floor"] = Body(x=0, y = self.height, y_vel = 0, x_vel=0, mass=0, fx=0, fy=0, k=1e12, c=1e12, static=True, shape=Plane(0, -1), )
+
     def create_spring(self, links, stretch_res, length, name1, name2, spring_name, mass=1.0):
         if links == 0:
             self.springs[spring_name] = Spring(links = links, stretch_res = stretch_res, length = length, body1 = self.bodies[name1], body2= self.bodies[name2])
@@ -22,58 +24,51 @@ class World:
         for a, b in itertools.combinations(self.bodies.values(), 2):
             if a.group is not None and a.group == b.group:
                 continue
-            if math.dist((a.x, a.y), (b.x, b.y)) < a.radius +b.radius:
-                self.ball_interact(a, b)
-    def app_friction(self,a,b, p):
-        rvx, rvy = b.x_vel-a.x_vel, b.y_vel-a.y_vel
-        keff = (a.k*b.k)/(a.k+b.k)
-        ceff = (a.c*b.c)/(a.c+b.c)
-        mu_eff = (a.mu*b.mu)**(1/2)
-        dx = b.x - a.x
-        dy = b.y - a.y
-        dist = math.dist((a.x, a.y), (b.x,b.y))
-        nx = dx/dist
-        ny = dy/dist
-        v_along = (rvx*nx + rvy*ny)
-        force = max(0, keff*p -ceff*v_along)
+            if a.inv_mass + b.inv_mass == 0:
+                continue
+            hit = contact(a,b)
+            if hit is not None:
+                a, b, nx, ny, p, px, py = hit
+                self.resolve(a, b, nx, ny, p, px, py)
+    def app_N(self, a, b, nx, ny, N, px, py):
+        b.app_force(N*nx, N*ny, px, py)
+        a.app_force(-N*nx, -N*ny, px, py)
+    def app_friction(self, a, b, nx, ny, rvx, rvy, N, mu_eff, m_red, px, py):
         tx, ty = -ny, nx
-        t_along = tx*rvx+ ty*rvy
-        friction = mu_eff*force
-        m_red = 1/(a.inv_mass + b.inv_mass)
-        friction = min(friction, m_red*abs(t_along)/self.dt)
+        rax, ray = px - a.x, py - a.y
+        rbx, rby = px - b.x, py - b.y
+        svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray)
+        svy = (b.y_vel + b.omega*rbx) - (a.y_vel + a.omega*rax)
+        t_along = tx*svx + ty*svy
+        friction = mu_eff*N
+        ract = rax*ty - ray*tx
+        rbct = rbx*ty - rby*tx
+        m_t = 1/(a.inv_mass + b.inv_mass + ract*ract*a.inv_I + rbct*rbct*b.inv_I)
+        friction = min(friction, m_t*abs(t_along)/self.dt)        
         if t_along > 0:
             friction = -friction
-        b.app_force(friction*tx, friction*ty)
-        a.app_force(-friction*tx, -friction*ty)
-
-    def ball_interact(self, a, b):
+        b.app_force(friction*tx, friction*ty, px, py)
+        a.app_force(-friction*tx, -friction*ty, px, py)
+    def resolve(self, a, b, nx, ny, p, px, py):
         rvx, rvy = b.x_vel-a.x_vel, b.y_vel-a.y_vel
         keff = (a.k*b.k)/(a.k+b.k)
         ceff = (a.c*b.c)/(a.c+b.c)
-        dx = b.x - a.x
-        dy = b.y - a.y
-        dist = math.dist((a.x, a.y), (b.x,b.y))
-        p = (a.radius+b.radius) - dist
-        nx = dx/dist
-        ny = dy/dist
-        v_along = (rvx*nx + rvy*ny)
-        force = max(0, keff*p -ceff*v_along)
-        b.app_force(force*nx, force*ny)
-        a.app_force(-force*nx, -force*ny)
-        self.app_friction(a, b, p)
+        mu_eff = (a.mu*b.mu)**0.5
+        m_red = 1/(a.inv_mass + b.inv_mass)
+        v_along = rvx*nx + rvy*ny
+        N = max(0, keff*p - ceff*v_along)
+        self.app_N(a, b, nx, ny, N, px, py)
+        self.app_friction(a, b, nx, ny, rvx, rvy, N, mu_eff, m_red, px, py)
     def integrate_f(self):
         for body in self.bodies.values():
             body.app_acel(body.fx, body.fy, self.dt)
             body.app_vel(self.dt)
-        for ball in self.bodies.values():
-            if ball.y + ball.radius > self.height:
-                self.floor(ball)
 
     def add_body(self, body, name):
         self.bodies[name] = body
     def step(self):
         for body in self.bodies.values():
-            body.fx, body.fy = 0, 0
+            body.fx, body.fy, body.torque = 0, 0, 0
             body.app_force(0, body.mass*9.81)
         for spring in self.springs.values():
             spring.app_force()
@@ -90,22 +85,10 @@ class World:
             lnk.append(self.bodies[f"link{i}{spring_name}"])
         lnk.append(body2)
         link = [Spring(0, stretch_res, length/links, lnk[s-1], lnk[s]) for s in range(1, len(lnk))]
-        return link
-    def floor(self, body):
-            if body.group == "link":
-                pass 
-            else:
-                p = body.y+body.radius - self.height
-                c_s = body.y_vel
-                N = min(0, -body.k*p - body.c*c_s)
-                mu_eff = (body.mu*self.mu)**0.5
-                friction = min(mu_eff*abs(N), body.mass*abs(body.x_vel)/self.dt)
-                if body.x_vel > 0:
-                    friction = -friction
-                body.app_acel(x_force = friction, y_force = N, dt=self.dt)
+        return link        
 
 class Body:
-    def __init__(self, x, y, x_vel, y_vel, mass, fx=0, fy=0, group = None, k=300, c=2.5, mu=0.5, theta=0, omega=0, torque=0, I=None, shape=None, static=False):
+    def __init__(self, x, y, x_vel=0, y_vel=0, mass=1, fx=0, fy=0, group = None, k=30000, c=25, mu=0.5, theta=0, omega=0, torque=0, I=None, shape=None, static=False):
         self.x = x
         self.y = y
         self.x_vel = x_vel
@@ -127,20 +110,29 @@ class Body:
         if static:
             self.I = 0
             self.inv_mass, self.inv_I = 0, 0
+            self.k = 1e12
+            self.c = 1e12
+            mu=0.8
+            mass=1
         else:
             if I is None:
                 I = self.mass * self.shape.moi_per_mass()
             self.I = I
             self.inv_mass, self.inv_I = 1/self.mass, 1/self.I
-    def app_force(self, fx, fy):
+    def app_force(self, fx, fy, px= None, py= None):
         self.fx += fx
         self.fy += fy
+        if px is not None:
+            rx, ry = -self.x+px, -self.y+py
+            self.torque += rx*fy - ry*fx
     def app_acel(self, x_force, y_force, dt):
         self.y_vel += y_force*self.inv_mass*dt
         self.x_vel += x_force*self.inv_mass*dt
+        self.omega += self.torque * self.inv_I * dt
     def app_vel(self, dt):
         self.x += self.x_vel*dt
         self.y += self.y_vel*dt
+        self.theta += self.omega * dt
     @property
     def radius(self):
         return self.shape.radius
@@ -186,4 +178,50 @@ class Disk():
         return math.pi*self.radius**2
     def moi_per_mass(self):
         return self.radius**2/2
+    
+
+
+
+def disk_disk(a, b):
+    dx = b.x - a.x
+    dy = b.y - a.y
+    dist = math.dist((a.x, a.y), (b.x, b.y))
+    p = (a.radius + b.radius) - dist
+    if p <= 0 or dist == 0:
+        return None
+    nx = dx/dist
+    ny = dy/dist
+    px = a.x + a.radius*nx
+    py = a.y + a.radius*ny
+    return a, b, nx, ny, p, px, py
+def disk_plane(plane,disk):
+    nx, ny = plane.shape.nx, plane.shape.ny
+    d = (disk.x - plane.x)*nx + (disk.y-plane.y)*ny
+    p = disk.radius-d
+    px, py = disk.x-disk.radius*nx, disk.y-disk.radius*ny
+    if p <= 0:
+        return None
+    return plane, disk, nx, ny, p, px, py
+
+
+
+
+SHAPE_ORDER = {Plane: 0, Disk: 1}
+PAIRS = {(Plane, Disk): disk_plane,
+         (Disk, Disk):  disk_disk}
+
+def contact(a,b):
+    a_rank = SHAPE_ORDER[type(a.shape)]
+    b_rank = SHAPE_ORDER[type(b.shape)]
+    rank_order = (a,b) if a_rank <= b_rank else (b,a)
+    a,b = rank_order
+    fn = PAIRS.get((type(a.shape), type(b.shape)))
+    if fn is None:
+        return None
+    hit = fn(a, b)
+    if hit is None:
+        return None
+    a, b, nx, ny, p, px, py = hit
+    return a, b, nx, ny, p, px, py
+    
 

@@ -22,17 +22,20 @@ def test_galileo():
     assert body.y == pytest.approx(body2.y)
     assert body.y_vel == pytest.approx(body2.y_vel)
 def test_spring():
-    world = World(20,20,20)
+    # stiff default material (k=30000) needs a small dt: k < 4m/dt^2
+    world = World(360, 20, 20)
     body = Body(x=world.height//2, y=15, x_vel=0, y_vel=0, mass=12)
     world.add_body(body, "body")
-    for _ in range(3000):
+    for _ in range(360 * 40):     # 40 s: e~0.94, the bouncing takes ~27 s to die
         world.step()
     assert body.y == pytest.approx(body.mass*9.81/world.k + world.height - body.radius)
 def test_ball_collision():
+    from world import disk_disk
     world = World(20, 20, 20)
     ball1 = Body(x=0, y=0, x_vel=0, y_vel=0, mass=1)
     ball2 = Body(x=1, y=1, x_vel=0, y_vel=0, mass=1)
-    world.ball_interact(ball1, ball2)
+    ball1, ball2, nx, ny, p, px, py = disk_disk(ball1, ball2)
+    world.resolve(ball1, ball2, nx, ny, p, px, py)
     assert ball2.fx == pytest.approx(ball2.fy)
     assert ball1.fx == pytest.approx(-ball2.fx)
     assert ball1.fy == pytest.approx(-ball2.fy)
