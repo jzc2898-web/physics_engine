@@ -28,13 +28,13 @@ def test_spring():
     world.add_body(body, "body")
     for _ in range(360 * 40):     # 40 s: e~0.94, the bouncing takes ~27 s to die
         world.step()
-    assert body.y == pytest.approx(body.mass*9.81/world.k + world.height - body.radius)
+    assert body.y == pytest.approx(body.mass*9.81/world.k + (world.height - 2) - body.radius)
 def test_ball_collision():
     from world import disk_disk
     world = World(20, 20, 20)
     ball1 = Body(x=0, y=0, x_vel=0, y_vel=0, mass=1)
     ball2 = Body(x=1, y=1, x_vel=0, y_vel=0, mass=1)
-    ball1, ball2, nx, ny, p, px, py = disk_disk(ball1, ball2)
+    (ball1, ball2, nx, ny, p, px, py), = disk_disk(ball1, ball2)   # unpack the single-contact list
     world.resolve(ball1, ball2, nx, ny, p, px, py)
     assert ball2.fx == pytest.approx(ball2.fy)
     assert ball1.fx == pytest.approx(-ball2.fx)

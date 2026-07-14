@@ -84,11 +84,11 @@ def test_rolling_turns_once_per_circumference():
 
 def test_spin_bomb_scatters_the_pair():
     world = World(360, 15, 15)
-    bottom = Body(7.5, 14.0, 0, 0, 1, mu=1.0, shape=Disk(1))     # resting on floor
+    bottom = Body(7.5, 12.0, 0, 0, 1, mu=1.0, shape=Disk(1))     # resting on floor (height-2 = 13, minus radius 1)
     world.add_body(bottom, "bottom")
     for _ in range(360):                                          # let it settle
         world.step()
-    top = Body(7.5, 11.5, 0, 0, 1, mu=1.0, omega=200, shape=Disk(1))
+    top = Body(7.5, 9.5, 0, 0, 1, mu=1.0, omega=200, shape=Disk(1))
     world.add_body(top, "top")
     for _ in range(720):                                          # drop + kick, 2 s
         world.step()
