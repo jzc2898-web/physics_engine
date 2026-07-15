@@ -1,6 +1,5 @@
-from world import World, Body, Disk, Plane, Capsule
-import pygame
-
+from world import World, Body, Disk, Plane, Capsule, Joint
+import pygame, draw
 PIXELS_XN = 750
 METERS_PER_PIXEL = 50
 FPS = 60
@@ -10,22 +9,15 @@ pygame.init()
 clock = pygame.time.Clock()
 screen = pygame.display.set_mode((PIXELS_XN, PIXELS_XN))
 running = True
-ball = Body(3, 3, 0, 0, 3, shape=Capsule(2, 0.5), c=600, e=.3)
-ball2 = Body(7, 10, 0, 0, 3, shape=Disk(.1))
+ball = Body(9.5, 6.5, static=True, shape=Disk(0.05))
 world = World(WORLD_FPS, PIXELS_XN/METERS_PER_PIXEL, PIXELS_XN/METERS_PER_PIXEL, solver="impulse")
 world.add_body(ball, "ball")
+world.add_rope(7, 5, 12, 5, 8, 0.06, 3, "rope")
 ramp = Body(x=0,y=5, shape=Plane(0.5, -0.866), static=True)
 while running:
     screen.fill(WHITE)
-    for ball in world.bodies.values():
-        if ball.group is None and isinstance(ball.shape, Capsule):
-            pygame.draw.circle(screen, BLACK, (ball.x*METERS_PER_PIXEL, METERS_PER_PIXEL*ball.y), ball.radius*METERS_PER_PIXEL)
-    for spring in world.springs.values():
-        pygame.draw.line(screen, (200,40,40),
-            (spring.body1.x*METERS_PER_PIXEL, spring.body1.y*METERS_PER_PIXEL),
-            (spring.body2.x*METERS_PER_PIXEL, spring.body2.y*METERS_PER_PIXEL))
-    floor_y = world.bodies["floor"].y * METERS_PER_PIXEL
-    pygame.draw.line(screen, BLACK, (0,floor_y), (PIXELS_XN, floor_y), 3)
+    draw.draw_world(screen, world, show_joints=False)
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False

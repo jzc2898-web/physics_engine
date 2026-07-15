@@ -11,8 +11,10 @@ class World:
         self.e = e
         self.width = width
         self.mu = mu
+        self.no_collide = set()
         self.bodies = {}
         self.springs = {}
+        self.joints = {}
         self.bodies["floor"] = Body(x=0, y = self.height-2, y_vel = 0, x_vel=0, mass=0, fx=0, fy=0, k=1e12, c=1e12, static=True, shape=Plane(0, -1), )
 
 
@@ -24,15 +26,30 @@ class World:
                 continue
             if a.inv_mass + b.inv_mass == 0:
                 continue
+            if frozenset((a,b)) in self.no_collide:
+                continue
             for c in contact(a, b):
                 contacts.append(c)
-        for a, b, nx, ny, p, px, py in contacts:      # ← PHASE 2: your selected lines, ONCE
+        for a, b, nx, ny, p, px, py in contacts:   
             beta, slop = 0.2, 0.005
             corr = max(p - slop, 0) * beta / (a.inv_mass + b.inv_mass)
             a.x -= corr * a.inv_mass * nx
             a.y -= corr * a.inv_mass * ny
             b.x += corr * b.inv_mass * nx
             b.y += corr * b.inv_mass * ny
+        for jnt in self.joints.values():
+            b1, b2 = jnt.body1, jnt.body2
+            p1x, p1y = b1._world_point(*jnt.off1)
+            p2x, p2y = b2._world_point(*jnt.off2)
+            dx, dy = p2x - p1x, p2y - p1y           
+            total = b1.inv_mass + b2.inv_mass
+            if total == 0: continue                  
+            beta = 0.2
+            b1.x += dx * beta * b1.inv_mass / total   
+            b1.y += dy * beta * b1.inv_mass / total
+            b2.x -= dx * beta * b2.inv_mass / total   
+            b2.y -= dy * beta * b2.inv_mass / total
+            
 
         for _ in range(10):
                 for c in contacts:
@@ -69,6 +86,8 @@ class World:
 
                     b.app_impulse( jt*tx,  jt*ty, px, py)
                     a.app_impulse(-jt*tx, -jt*ty, px, py) 
+                for jnt in self.joints.values():
+                    jnt.solve()
     def create_spring(self, links, stretch_res, length, name1, name2, spring_name, mass=1.0):
         if links == 0:
             self.springs[spring_name] = Spring(links = links, stretch_res = stretch_res, length = length, body1 = self.bodies[name1], body2= self.bodies[name2])
@@ -117,6 +136,9 @@ class World:
 
     def add_body(self, body, name):
         self.bodies[name] = body
+    def add_joint(self, joint, name):
+        self.joints[name] = joint
+        self.no_collide.add(frozenset((joint.body1, joint.body2)))
     def step(self):
         for body in self.bodies.values():
             body.fx, body.fy, body.torque = 0, 0, 0
@@ -143,6 +165,20 @@ class World:
         lnk.append(body2)
         link = [Spring(0, stretch_res, length/links, lnk[s-1], lnk[s]) for s in range(1, len(lnk))]
         return link        
+    def add_rope(self, x1, y1, x2, y2, links, radius, mass, name):
+        span = math.dist((x2,y2),(x1,y1))
+        rope = []
+        dy, dx = (y2-y1), (x2-x1)
+        dy_step, dx_step = dy/links, dx/links
+        for i in range(links):
+            cx, cy = x1 + dx_step*(i+0.5), y1 + dy_step*(i+0.5)
+            seg = Body(cx, cy, mass = mass/links, group=None, theta = math.atan2(dy,dx), shape=Capsule(span/(2*links), radius))
+            self.bodies[f"{name}{i}"] = seg
+            rope.append(seg)
+            if i != 0:
+                segjnt = Joint(rope[i-1], rope[i], (span/(2*links), 0), (-span/(2*links),0) )
+                self.add_joint(segjnt, f"{name}{i}jnt")   # through add_joint so no_collide learns the pair       
+        return rope
 
 class Body:
     def __init__(self, x, y, x_vel=0, y_vel=0, mass=1, fx=0, fy=0, group = None, k=30000, e=0.5,c=25, mu=0.5, theta=0, omega=0, torque=0, I=None, shape=None, static=False):
@@ -197,6 +233,11 @@ class Body:
         if px is not None:
             rx, ry = -self.x+px, -self.y+py
             self.omega += (rx*jy - ry*jx)*self.inv_I
+    def _world_point(self, ox, oy):
+        c, s = math.cos(self.theta), math.sin(self.theta)
+        px = self.x + ox*c - oy*s
+        py = self.y + ox*s + oy*c
+        return px, py
     @property
     def radius(self):
         return self.shape.radius
@@ -204,6 +245,33 @@ class Body:
     @property
     def area(self):
         return self.shape.area()
+
+class Joint:
+    def __init__(self, body1, body2, off1, off2):
+        self.off1 = off1
+        self.off2 = off2
+        self.body1 = body1
+        self.body2 = body2
+    def solve(self):
+        b1, b2 = self.body1, self.body2
+        p1x, p1y = b1._world_point(*self.off1)
+        p2x, p2y = b2._world_point(*self.off2)
+        rax, ray = p1x - b1.x, p1y - b1.y
+        rbx, rby = p2x - b2.x, p2y-b2.y
+        vx = (b2.x_vel - b2.omega*rby) - (b1.x_vel - b1.omega*ray)   
+        vy = (b2.y_vel + b2.omega*rbx) - (b1.y_vel + b1.omega*rax)
+        ima, imb, ia, ib = b1.inv_mass, b2.inv_mass, b1.inv_I, b2.inv_I
+        k00 = ima + imb + ia*ray*ray + ib*rby*rby
+        k01 = -ia*rax*ray - ib*rbx*rby
+        k11 = ima + imb + ia*rax*rax + ib*rbx*rbx
+        det = k00*k11 - k01*k01
+        jx = (-k11*vx + k01*vy) / det         
+        jy = ( k01*vx - k00*vy) / det
+        b2.app_impulse( jx,  jy, p2x, p2y)     # each body kicked at its own anchor
+        b1.app_impulse(-jx, -jy, p1x, p1y)
+
+
+
 
 
 
