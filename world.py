@@ -202,7 +202,7 @@ def closest_on_segment(px, py, ax, ay, bx, by):
 
 def capsule_disk(cap, disk):
     A, B = cap.shape.endpoints(cap)
-    cx, cy = cap.closest_on_segment(disk.x, disk.y, A[0], A[1], B[0], B[1])
+    cx, cy = closest_on_segment(disk.x, disk.y, A[0], A[1], B[0], B[1])
     dx, dy = disk.x - cx, disk.y - cy        # spine point -> disk center = a -> b
     dist = math.hypot(dx, dy)
     p = (cap.radius + disk.radius) - dist
