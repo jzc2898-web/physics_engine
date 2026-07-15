@@ -1,4 +1,4 @@
-from world import World, Body, Disk, Plane
+from world import World, Body, Disk, Plane, Capsule
 import pygame
 
 PIXELS_XN = 750
@@ -10,16 +10,15 @@ pygame.init()
 clock = pygame.time.Clock()
 screen = pygame.display.set_mode((PIXELS_XN, PIXELS_XN))
 running = True
-ball = Body(3, 3, 0, 0, 3, shape=Disk(.1), c=600, e=.3)
+ball = Body(3, 3, 0, 0, 3, shape=Capsule(2, 0.5), c=600, e=.3)
 ball2 = Body(7, 10, 0, 0, 3, shape=Disk(.1))
 world = World(WORLD_FPS, PIXELS_XN/METERS_PER_PIXEL, PIXELS_XN/METERS_PER_PIXEL, solver="impulse")
 world.add_body(ball, "ball")
 ramp = Body(x=0,y=5, shape=Plane(0.5, -0.866), static=True)
-world.add_body(ramp, "ramp")
 while running:
     screen.fill(WHITE)
     for ball in world.bodies.values():
-        if ball.group is None and isinstance(ball.shape, Disk):
+        if ball.group is None and isinstance(ball.shape, Capsule):
             pygame.draw.circle(screen, BLACK, (ball.x*METERS_PER_PIXEL, METERS_PER_PIXEL*ball.y), ball.radius*METERS_PER_PIXEL)
     for spring in world.springs.values():
         pygame.draw.line(screen, (200,40,40),

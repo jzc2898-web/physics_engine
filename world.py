@@ -18,45 +18,57 @@ class World:
 
 
     def solve_contacts(self):
+        contacts = []
         for a, b in itertools.combinations(self.bodies.values(), 2):
             if a.group is not None and a.group == b.group:
                 continue
             if a.inv_mass + b.inv_mass == 0:
                 continue
             for c in contact(a, b):
-                a,b, nx, ny, p, px, py=c
-                rax, ray = px-a.x, py-a.y
-                rbx, rby = px-b.x, py-b.y
-                svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray) 
-                svy = (b.y_vel + b.omega*rbx) - (a.y_vel + a.omega*rax)
-                v_n = svx*nx + svy*ny
-                if v_n > 0: continue
-                e = min(a.e, b.e)
-                if v_n > -0.06:
-                    e = 0
-                racn = rax*ny - ray*nx            
-                rbcn = rbx*ny - rby*nx
-                m_n = 1/(a.inv_mass + b.inv_mass + racn*racn*a.inv_I + rbcn*rbcn*b.inv_I)
-                j = -(1 + e) * v_n * m_n
-                b.app_impulse( j*nx,  j*ny, px, py)
-                a.app_impulse(-j*nx, -j*ny, px, py)
-                svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray)
-                svy = (b.y_vel + b.omega*rbx) - (a.y_vel + a.omega*rax)
+                contacts.append(c)
+        for a, b, nx, ny, p, px, py in contacts:      # ← PHASE 2: your selected lines, ONCE
+            beta, slop = 0.2, 0.005
+            corr = max(p - slop, 0) * beta / (a.inv_mass + b.inv_mass)
+            a.x -= corr * a.inv_mass * nx
+            a.y -= corr * a.inv_mass * ny
+            b.x += corr * b.inv_mass * nx
+            b.y += corr * b.inv_mass * ny
 
-                tx, ty = -ny, nx                    # tangent: the normal rotated 90°
-                v_t = svx*tx + svy*ty               # slip: how fast the skins scrub sideways
+        for _ in range(10):
+                for c in contacts:
+                    a,b, nx, ny, p, px, py=c
+                    rax, ray = px-a.x, py-a.y
+                    rbx, rby = px-b.x, py-b.y
+                    svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray) 
+                    svy = (b.y_vel + b.omega*rbx) - (a.y_vel + a.omega*rax)
+                    v_n = svx*nx + svy*ny
+                    if v_n > 0: continue
+                    e = min(a.e, b.e)
+                    if v_n > -0.06:
+                        e = 0
+                    racn = rax*ny - ray*nx            
+                    rbcn = rbx*ny - rby*nx
+                    m_n = 1/(a.inv_mass + b.inv_mass + racn*racn*a.inv_I + rbcn*rbcn*b.inv_I)
+                    j = -(1 + e) * v_n * m_n
+                    b.app_impulse( j*nx,  j*ny, px, py)
+                    a.app_impulse(-j*nx, -j*ny, px, py)
+                    svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray)
+                    svy = (b.y_vel + b.omega*rbx) - (a.y_vel + a.omega*rax)
 
-                ract = rax*ty - ray*tx              # leverage of this contact to spin a
-                rbct = rbx*ty - rby*tx              # ...and b
-                m_t = 1/(a.inv_mass + b.inv_mass + ract*ract*a.inv_I + rbct*rbct*b.inv_I)
+                    tx, ty = -ny, nx                    # tangent: the normal rotated 90°
+                    v_t = svx*tx + svy*ty               # slip: how fast the skins scrub sideways
 
-                jt = -m_t * v_t                     # the exact impulse that makes slip = 0
+                    ract = rax*ty - ray*tx              # leverage of this contact to spin a
+                    rbct = rbx*ty - rby*tx              # ...and b
+                    m_t = 1/(a.inv_mass + b.inv_mass + ract*ract*a.inv_I + rbct*rbct*b.inv_I)
 
-                mu_eff = (a.mu*b.mu)**0.5           # same pair rule as penalty
-                jt = max(-mu_eff*j, min(mu_eff*j, jt))   # Coulomb budget: |jt| ≤ μ·j
+                    jt = -m_t * v_t                     # the exact impulse that makes slip = 0
 
-                b.app_impulse( jt*tx,  jt*ty, px, py)
-                a.app_impulse(-jt*tx, -jt*ty, px, py) 
+                    mu_eff = (a.mu*b.mu)**0.5           # same pair rule as penalty
+                    jt = max(-mu_eff*j, min(mu_eff*j, jt))   # Coulomb budget: |jt| ≤ μ·j
+
+                    b.app_impulse( jt*tx,  jt*ty, px, py)
+                    a.app_impulse(-jt*tx, -jt*ty, px, py) 
     def create_spring(self, links, stretch_res, length, name1, name2, spring_name, mass=1.0):
         if links == 0:
             self.springs[spring_name] = Spring(links = links, stretch_res = stretch_res, length = length, body1 = self.bodies[name1], body2= self.bodies[name2])
@@ -133,7 +145,7 @@ class World:
         return link        
 
 class Body:
-    def __init__(self, x, y, x_vel=0, y_vel=0, mass=1, fx=0, fy=0, group = None, k=30000, e=20,c=25, mu=0.5, theta=0, omega=0, torque=0, I=None, shape=None, static=False):
+    def __init__(self, x, y, x_vel=0, y_vel=0, mass=1, fx=0, fy=0, group = None, k=30000, e=0.5,c=25, mu=0.5, theta=0, omega=0, torque=0, I=None, shape=None, static=False):
         self.x = x
         self.y = y
         self.x_vel = x_vel

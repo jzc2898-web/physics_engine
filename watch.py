@@ -21,8 +21,24 @@ def make_impulse_ramp(theta_deg=25, e=0.6):
     return world, ball
 
 
+def make_ball_launch():
+    """Basketball + tennis ball: drop a light ball stacked above a heavy one.
+    The heavy ball rebounds INTO the falling light one -> the light ball
+    steals its energy and launches ~5x the drop height."""
+    world = World(360, 30, 30, solver="impulse")             # floor at 28
+    big = Body(15, 24.0, mass=5, e=0.9, mu=0.1, shape=Disk(1.0))
+    small = Body(15, 24.0 - 1.0 - 0.3 - 0.05, mass=0.2,      # 5 cm gap above big
+                 e=0.9, mu=0.1, shape=Disk(0.3))
+    world.add_body(big, "big")
+    world.add_body(small, "small")
+    return world
+
+
 # penalty ramp (the old rolling test): ball ROLLS, spin hand turns
 # show(lambda: make_ramp_world(30, 1.0))
 
 # impulse ramp: ball BOUNCES down the slope
-show(lambda: make_impulse_ramp(25, 0.6))
+# show(lambda: make_impulse_ramp(25, 0.6))
+
+# the basketball/tennis-ball launch
+show(make_ball_launch)
