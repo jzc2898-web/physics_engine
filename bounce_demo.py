@@ -1,4 +1,4 @@
-from world import World, Body, Disk
+from worlds import World, Body, Disk
 import pygame
 
 PPM = 50                 # pixels per meter

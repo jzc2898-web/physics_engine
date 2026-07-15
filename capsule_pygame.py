@@ -16,7 +16,7 @@ Controls:
 import math
 import pygame
 
-from world import Disk, Capsule, Plane
+from worlds import Disk, Capsule, Plane
 from capsule_playground import (FPS, scene_hit_ball, scene_floor, scene_ramp,
                                 scene_cap_cap)
 

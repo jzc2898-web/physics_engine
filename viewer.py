@@ -14,7 +14,7 @@ Controls:  SPACE pause   R restart (if given a callable)   ESC quit
 """
 import math
 import pygame
-from world import World, Body, Disk, Plane
+from worlds import World, Body, Disk, Plane
 
 W_PX, H_PX = 900, 900
 FPS = 60

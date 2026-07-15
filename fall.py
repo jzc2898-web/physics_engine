@@ -1,4 +1,4 @@
-from world import World, Body, Disk, Plane, Capsule, Joint
+from worlds import World, Body, Disk, Plane, Capsule, Joint
 import pygame, draw
 PIXELS_XN = 750
 METERS_PER_PIXEL = 50

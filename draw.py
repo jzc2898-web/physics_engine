@@ -21,7 +21,7 @@ muscles, and a green dot at every joint anchor so you can see the pins.
 """
 import math
 import pygame
-from world import Disk, Capsule, Plane
+from worlds import Disk, Capsule, Plane
 
 STATIC_COL  = (40, 40, 46)
 DISK_COL    = (40, 90, 220)

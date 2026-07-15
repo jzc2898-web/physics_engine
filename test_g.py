@@ -1,5 +1,5 @@
 import pytest
-from world import World, Body
+from worlds import World, Body
 import math
 def test_gravity():
     world = World(20, 20, 20)
@@ -30,7 +30,7 @@ def test_spring():
         world.step()
     assert body.y == pytest.approx(body.mass*9.81/world.k + (world.height - 2) - body.radius)
 def test_ball_collision():
-    from world import disk_disk
+    from worlds import disk_disk
     world = World(20, 20, 20)
     ball1 = Body(x=0, y=0, x_vel=0, y_vel=0, mass=1)
     ball2 = Body(x=1, y=1, x_vel=0, y_vel=0, mass=1)

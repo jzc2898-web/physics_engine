@@ -2,7 +2,7 @@ import math
 from viewer import show
 from test_spin import make_ramp_world
 from test_g import test_galileo
-from world import World, Body, Disk, Plane
+from worlds import World, Body, Disk, Plane
 
 
 def make_impulse_ramp(theta_deg=25, e=0.6):

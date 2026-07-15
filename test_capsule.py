@@ -2,7 +2,7 @@
 once because nothing exercised it -- this makes sure that can't happen again)."""
 import math
 import pytest
-from world import World, Body, Disk, Capsule, contact
+from worlds import World, Body, Disk, Capsule, contact
 
 def test_capsule_disk_reports_overlap():
     # a disk overlapping a horizontal capsule must produce exactly one contact

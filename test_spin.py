@@ -1,6 +1,6 @@
 import math
 import pytest
-from world import World, Body, Disk, Plane
+from worlds import World, Body, Disk, Plane
 
 G = 9.81
 

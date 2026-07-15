@@ -10,7 +10,7 @@ matplotlib.use("Agg")                       # headless: write a file, no window
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Polygon
 
-from world import World, Body, Disk, Capsule, Plane
+from worlds import World, Body, Disk, Capsule, Plane
 
 FPS = 360
 

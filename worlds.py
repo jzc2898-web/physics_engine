@@ -2,7 +2,7 @@ import itertools
 import math
 
 class World:
-    def __init__(self, FPS, height, width, k=30000, e=0.5, c=25, mu=0.8, solver = "penalty"):
+    def __init__(self, FPS, height, width, k=30000, e=0.5, c=25, mu=0.8, solver = "penalty", joint_beta = 0.5, iters = 10):
         self.dt = 1/FPS
         self.height = height
         self.solver = solver
@@ -11,6 +11,8 @@ class World:
         self.e = e
         self.width = width
         self.mu = mu
+        self.iters = iters
+        self.joint_beta = joint_beta
         self.no_collide = set()
         self.bodies = {}
         self.springs = {}
@@ -38,20 +40,9 @@ class World:
             b.x += corr * b.inv_mass * nx
             b.y += corr * b.inv_mass * ny
         for jnt in self.joints.values():
-            b1, b2 = jnt.body1, jnt.body2
-            p1x, p1y = b1._world_point(*jnt.off1)
-            p2x, p2y = b2._world_point(*jnt.off2)
-            dx, dy = p2x - p1x, p2y - p1y           
-            total = b1.inv_mass + b2.inv_mass
-            if total == 0: continue                  
-            beta = 0.2
-            b1.x += dx * beta * b1.inv_mass / total   
-            b1.y += dy * beta * b1.inv_mass / total
-            b2.x -= dx * beta * b2.inv_mass / total   
-            b2.y -= dy * beta * b2.inv_mass / total
-            
+            jnt.correct_position(self.joint_beta)
 
-        for _ in range(10):
+        for _ in range(self.iters):
                 for c in contacts:
                     a,b, nx, ny, p, px, py=c
                     rax, ray = px-a.x, py-a.y
@@ -133,7 +124,8 @@ class World:
         N = max(0, keff*p - ceff*v_along)
         self.app_N(a, b, nx, ny, N, px, py)
         self.app_friction(a, b, nx, ny, rvx, rvy, N, mu_eff, m_red, px, py)
-
+    def add_spring(self, body, name):
+        self.springs[name] = body
     def add_body(self, body, name):
         self.bodies[name] = body
     def add_joint(self, joint, name):
@@ -269,7 +261,18 @@ class Joint:
         jy = ( k01*vx - k00*vy) / det
         b2.app_impulse( jx,  jy, p2x, p2y)     # each body kicked at its own anchor
         b1.app_impulse(-jx, -jy, p1x, p1y)
-
+    def correct_position(self, beta):
+        b1, b2 = self.body1, self.body2
+        p1x, p1y = b1._world_point(*self.off1)
+        p2x, p2y = b2._world_point(*self.off2)
+        dx, dy = p2x - p1x, p2y - p1y           
+        total = b1.inv_mass + b2.inv_mass
+        if total == 0: return               
+        b1.x += dx * beta * b1.inv_mass / total   
+        b1.y += dy * beta * b1.inv_mass / total
+        b2.x -= dx * beta * b2.inv_mass / total   
+        b2.y -= dy * beta * b2.inv_mass / total
+            
 
 
 
@@ -299,6 +302,41 @@ class Spring:
         force = self.res*stretch + self.c*v_along
         self.body1.app_force(force*nx, force*ny)
         self.body2.app_force(-force*nx, -force*ny)
+class Limit:
+    def __init__(self, body1, body2, min_ang, max_ang):
+        self.body1 = body1
+        self.body2 = body2
+        self.b1 = self.body1     # short aliases; body1/body2 is the constraint contract add_joint relies on
+        self.b2 = self.body2
+        self.min = min_ang
+        self.max = max_ang
+    def solve(self):
+        ang = self.b2.theta - self.b1.theta
+        if self.min <= ang <= self.max:
+            return
+        w = self.b2.omega - self.b1.omega
+        if ang > self.max and w <= 0:
+            return
+        if ang<self.min and w >= 0:
+            return
+        denom = self.b1.inv_I+self.b2.inv_I
+        if denom == 0:
+            return
+        j = -w/denom
+        self.b2.omega += j * self.b2.inv_I
+        self.b1.omega -= j*self.b1.inv_I
+    def correct_position(self, beta):
+        ang = self.b2.theta - self.b1.theta
+        over = 0
+        if ang > self.max: over = ang - self.max
+        elif ang< self.min: over = ang-self.min
+        if over == 0:
+            return
+        denom = self.b1.inv_I + self.b2.inv_I
+        if denom == 0:
+            return
+        self.b2.theta -= over * beta * self.b2.inv_I/ denom
+        self.b1.theta += over*beta*self.b1.inv_I/denom
 class Plane():
     def __init__(self, nx, ny):
         self.nx = nx/math.hypot(nx,ny)
