@@ -2,17 +2,61 @@ import itertools
 import math
 
 class World:
-    def __init__(self, FPS, height, width, k=30000, c=25, mu=0.8):
+    def __init__(self, FPS, height, width, k=30000, e=0.5, c=25, mu=0.8, solver = "penalty"):
         self.dt = 1/FPS
         self.height = height
+        self.solver = solver
         self.k = k
         self.c = c
+        self.e = e
         self.width = width
         self.mu = mu
         self.bodies = {}
         self.springs = {}
         self.bodies["floor"] = Body(x=0, y = self.height-2, y_vel = 0, x_vel=0, mass=0, fx=0, fy=0, k=1e12, c=1e12, static=True, shape=Plane(0, -1), )
 
+
+
+    def solve_contacts(self):
+        for a, b in itertools.combinations(self.bodies.values(), 2):
+            if a.group is not None and a.group == b.group:
+                continue
+            if a.inv_mass + b.inv_mass == 0:
+                continue
+            for c in contact(a, b):
+                a,b, nx, ny, p, px, py=c
+                rax, ray = px-a.x, py-a.y
+                rbx, rby = px-b.x, py-b.y
+                svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray) 
+                svy = (b.y_vel + b.omega*rbx) - (a.y_vel + a.omega*rax)
+                v_n = svx*nx + svy*ny
+                if v_n > 0: continue
+                e = min(a.e, b.e)
+                if v_n > -0.06:
+                    e = 0
+                racn = rax*ny - ray*nx            
+                rbcn = rbx*ny - rby*nx
+                m_n = 1/(a.inv_mass + b.inv_mass + racn*racn*a.inv_I + rbcn*rbcn*b.inv_I)
+                j = -(1 + e) * v_n * m_n
+                b.app_impulse( j*nx,  j*ny, px, py)
+                a.app_impulse(-j*nx, -j*ny, px, py)
+                svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray)
+                svy = (b.y_vel + b.omega*rbx) - (a.y_vel + a.omega*rax)
+
+                tx, ty = -ny, nx                    # tangent: the normal rotated 90°
+                v_t = svx*tx + svy*ty               # slip: how fast the skins scrub sideways
+
+                ract = rax*ty - ray*tx              # leverage of this contact to spin a
+                rbct = rbx*ty - rby*tx              # ...and b
+                m_t = 1/(a.inv_mass + b.inv_mass + ract*ract*a.inv_I + rbct*rbct*b.inv_I)
+
+                jt = -m_t * v_t                     # the exact impulse that makes slip = 0
+
+                mu_eff = (a.mu*b.mu)**0.5           # same pair rule as penalty
+                jt = max(-mu_eff*j, min(mu_eff*j, jt))   # Coulomb budget: |jt| ≤ μ·j
+
+                b.app_impulse( jt*tx,  jt*ty, px, py)
+                a.app_impulse(-jt*tx, -jt*ty, px, py) 
     def create_spring(self, links, stretch_res, length, name1, name2, spring_name, mass=1.0):
         if links == 0:
             self.springs[spring_name] = Spring(links = links, stretch_res = stretch_res, length = length, body1 = self.bodies[name1], body2= self.bodies[name2])
@@ -28,6 +72,7 @@ class World:
                 continue
             for c in contact(a, b):        # a pair can yield 1 contact (usual) or 2 (flat capsule)
                 self.resolve(*c)
+
     def app_N(self, a, b, nx, ny, N, px, py):
         b.app_force(N*nx, N*ny, px, py)
         a.app_force(-N*nx, -N*ny, px, py)
@@ -57,10 +102,6 @@ class World:
         N = max(0, keff*p - ceff*v_along)
         self.app_N(a, b, nx, ny, N, px, py)
         self.app_friction(a, b, nx, ny, rvx, rvy, N, mu_eff, m_red, px, py)
-    def integrate_f(self):
-        for body in self.bodies.values():
-            body.app_acel(body.fx, body.fy, self.dt)
-            body.app_vel(self.dt)
 
     def add_body(self, body, name):
         self.bodies[name] = body
@@ -70,8 +111,14 @@ class World:
             body.app_force(0, body.mass*9.81)
         for spring in self.springs.values():
             spring.app_force()
-        self.find_interact()
-        self.integrate_f()
+        if self.solver == "penalty":
+            self.find_interact()
+        for body in self.bodies.values():
+            body.app_acel(self.dt)
+        if self.solver == "impulse":
+            self.solve_contacts()
+        for body in self.bodies.values():
+            body.app_vel(self.dt)
     def create_chain(self, links, stretch_res, length,  body1, body2, spring_name, mass):
         lnk = []
         lnk.insert(0, body1)
@@ -86,7 +133,7 @@ class World:
         return link        
 
 class Body:
-    def __init__(self, x, y, x_vel=0, y_vel=0, mass=1, fx=0, fy=0, group = None, k=30000, c=25, mu=0.5, theta=0, omega=0, torque=0, I=None, shape=None, static=False):
+    def __init__(self, x, y, x_vel=0, y_vel=0, mass=1, fx=0, fy=0, group = None, k=30000, e=20,c=25, mu=0.5, theta=0, omega=0, torque=0, I=None, shape=None, static=False):
         self.x = x
         self.y = y
         self.x_vel = x_vel
@@ -94,6 +141,7 @@ class Body:
         self.mass = mass
         self.fx = fx
         self.fy=fy
+        self.e = e
         self.group = group
         self.k = k
         self.c = c
@@ -123,14 +171,20 @@ class Body:
         if px is not None:
             rx, ry = -self.x+px, -self.y+py
             self.torque += rx*fy - ry*fx
-    def app_acel(self, x_force, y_force, dt):
-        self.y_vel += y_force*self.inv_mass*dt
-        self.x_vel += x_force*self.inv_mass*dt
+    def app_acel(self, dt):
+        self.y_vel += self.fy*self.inv_mass*dt
+        self.x_vel += self.fx*self.inv_mass*dt
         self.omega += self.torque * self.inv_I * dt
     def app_vel(self, dt):
         self.x += self.x_vel*dt
         self.y += self.y_vel*dt
         self.theta += self.omega * dt
+    def app_impulse(self, jx, jy, px=None, py=None):
+        self.x_vel +=jx*self.inv_mass
+        self.y_vel += jy*self.inv_mass
+        if px is not None:
+            rx, ry = -self.x+px, -self.y+py
+            self.omega += (rx*jy - ry*jx)*self.inv_I
     @property
     def radius(self):
         return self.shape.radius
