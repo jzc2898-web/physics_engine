@@ -42,19 +42,22 @@ class Critic(nn.Module):
         x = self.block(x)
         return x
 class Env():
-    def __init__(self, fps=60, max_steps=1000):
-        self.reset()
+    def __init__(self, max_steps=1000):
+        self.world_fps = 360             # physics rate (small dt so limbs can't tunnel)
+        self.substeps = 6                # physics steps per control step -> control = 360/6 = 60 Hz
+        self.control_hz = self.world_fps / self.substeps
         self.max_steps = max_steps
         self.contact_penalty = 0.03      # per forbidden body touching the ground, per step
         # only feet may touch (hands/ulnas are free: no penalty, no reward)
         self.forbidden = ["trunk", "Rfemur", "Lfemur", "Rtibia", "Ltibia", "Rhumerus", "Lhumerus"]
-        self.handsfree_steps = 120       # 2s at 60Hz control: hands off this long -> positive reward x2
+        self.handsfree_steps = int(2.0 * self.control_hz)   # hands off 2s -> positive reward x2
+        self.reset()
     def step(self, action):
         acts = torch.clip(action, 0, 1).tolist()   # floats, not tensors -> physics stays in float math
         prev = self.world.bodies["trunk"].x
         for ac, mu in zip(acts, self.world.muscle_names):
             self.world.springs[mu].set_activation(ac)
-        for _ in range(6):
+        for _ in range(self.substeps):
             self.world.step()
         self.steps += 1
         obs = self.get_obs()
@@ -79,7 +82,7 @@ class Env():
         return rewards
 
     def reset(self):
-        self.world = World(360, 15, 15, solver = "impulse", iters = 10)   # 360Hz: small dt so limbs can't tunnel through the floor
+        self.world = World(self.world_fps, 15, 15, solver = "impulse", iters = 10)
         human = make_human(self.world)
         obs = self.get_obs(True)
         self.steps = 0
