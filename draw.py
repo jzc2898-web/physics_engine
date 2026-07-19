@@ -69,7 +69,9 @@ def draw_world(screen, world, ppm=40, camera=None, show_joints=False):
             a_px, b_px = to_px(*A), to_px(*B)
             r_px = max(1, int(shape.radius * ppm))
             col = STATIC_COL if body.inv_mass == 0 else CAPSULE_COL
-            pygame.draw.line(screen, col, a_px, b_px, 2 * r_px)  # body (rectangle, no caps)
+            pygame.draw.line(screen, col, a_px, b_px, 2 * r_px)  # body
+            pygame.draw.circle(screen, col, a_px, r_px)          # round caps -> capsule
+            pygame.draw.circle(screen, col, b_px, r_px)
             pygame.draw.line(screen, SPINE_COL, a_px, b_px, 1)   # spine shows theta
         elif isinstance(shape, Disk):
             c_px = to_px(body.x, body.y)

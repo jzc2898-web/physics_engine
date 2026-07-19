@@ -17,6 +17,7 @@ class World:
         self.bodies = {}
         self.springs = {}
         self.joints = {}
+        self.contact_bodies = set()
         self.bodies["floor"] = Body(x=0, y = self.height-2, y_vel = 0, x_vel=0, mass=0, fx=0, fy=0, k=1e12, c=1e12, static=True, shape=Plane(0, -1), )
 
 
@@ -32,6 +33,8 @@ class World:
                 continue
             for c in contact(a, b):
                 contacts.append(c)
+                self.contact_bodies = {x for c in contacts for x in (c[0], c[1])}
+
         for a, b, nx, ny, p, px, py in contacts:   
             beta, slop = 0.2, 0.005
             corr = max(p - slop, 0) * beta / (a.inv_mass + b.inv_mass)
@@ -337,6 +340,7 @@ class Limit:
             return
         self.b2.theta -= over * beta * self.b2.inv_I/ denom
         self.b1.theta += over*beta*self.b1.inv_I/denom
+
 class Plane():
     def __init__(self, nx, ny):
         self.nx = nx/math.hypot(nx,ny)
