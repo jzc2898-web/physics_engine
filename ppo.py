@@ -48,7 +48,7 @@ class Env():
         self.contact_penalty = 0.03      # per forbidden body touching the ground, per step
         # only feet may touch (hands/ulnas are free: no penalty, no reward)
         self.forbidden = ["trunk", "Rfemur", "Lfemur", "Rtibia", "Ltibia", "Rhumerus", "Lhumerus"]
-        self.clean_bonus = 0.02          # bonus when ONLY feet (or nothing) touch the floor
+        self.handsfree_steps = 120       # 2s at 60Hz control: hands off this long -> positive reward x2
     def step(self, action):
         acts = torch.clip(action, 0, 1).tolist()   # floats, not tensors -> physics stays in float math
         prev = self.world.bodies["trunk"].x
@@ -70,10 +70,12 @@ class Env():
             if self.world.bodies[name] in self.world.contact_bodies:
                 rewards -= self.contact_penalty
         touching = self.world.contact_bodies
-        clean = not any(self.world.bodies[n] in touching
-                        for n in self.forbidden + ["Rulna", "Lulna"])
-        if clean:                                     # feet-or-nothing stance: extra pay
-            rewards += self.clean_bonus
+        if (self.world.bodies["Rulna"] in touching) or (self.world.bodies["Lulna"] in touching):
+            self.hands_free = 0                       # a hand touched: streak resets
+        else:
+            self.hands_free += 1
+        if self.hands_free > self.handsfree_steps and rewards > 0:
+            rewards *= 2                              # sustained hands-off: positive reward doubled
         return rewards
 
     def reset(self):
@@ -81,6 +83,7 @@ class Env():
         human = make_human(self.world)
         obs = self.get_obs(True)
         self.steps = 0
+        self.hands_free = 0
         return obs
     def get_obs(self, first=False):
         obs = []
