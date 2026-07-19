@@ -45,22 +45,39 @@ class World:
         for jnt in self.joints.values():
             jnt.correct_position(self.joint_beta)
 
+        # accumulated impulses: friction's budget is mu * TOTAL normal impulse so
+        # far (not one iteration's), so static grip holds exactly instead of
+        # creeping. Restitution targets the PRE-solve approach speed (bias) so
+        # the bounce isn't re-applied every iteration.
+        jn_acc = [0.0] * len(contacts)
+        jt_acc = [0.0] * len(contacts)
+        bias   = [0.0] * len(contacts)
+        for i, (a, b, nx, ny, p, px, py) in enumerate(contacts):
+            rax, ray = px-a.x, py-a.y
+            rbx, rby = px-b.x, py-b.y
+            svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray)
+            svy = (b.y_vel + b.omega*rbx) - (a.y_vel + a.omega*rax)
+            v_n0 = svx*nx + svy*ny
+            e = min(a.e, b.e)
+            if v_n0 > -0.06:                        # velocity threshold: no micro-bounce
+                e = 0
+            bias[i] = e * v_n0                      # solve drives v_n toward -e*v_n0
+
         for _ in range(self.iters):
-                for c in contacts:
+                for i, c in enumerate(contacts):
                     a,b, nx, ny, p, px, py=c
                     rax, ray = px-a.x, py-a.y
                     rbx, rby = px-b.x, py-b.y
-                    svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray) 
+                    svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray)
                     svy = (b.y_vel + b.omega*rbx) - (a.y_vel + a.omega*rax)
                     v_n = svx*nx + svy*ny
-                    if v_n > 0: continue
-                    e = min(a.e, b.e)
-                    if v_n > -0.06:
-                        e = 0
-                    racn = rax*ny - ray*nx            
+                    racn = rax*ny - ray*nx
                     rbcn = rbx*ny - rby*nx
                     m_n = 1/(a.inv_mass + b.inv_mass + racn*racn*a.inv_I + rbcn*rbcn*b.inv_I)
-                    j = -(1 + e) * v_n * m_n
+                    j = -m_n * (v_n + bias[i])
+                    new_n = max(jn_acc[i] + j, 0.0)     # total normal impulse only pushes
+                    j = new_n - jn_acc[i]
+                    jn_acc[i] = new_n
                     b.app_impulse( j*nx,  j*ny, px, py)
                     a.app_impulse(-j*nx, -j*ny, px, py)
                     svx = (b.x_vel - b.omega*rby) - (a.x_vel - a.omega*ray)
@@ -76,10 +93,13 @@ class World:
                     jt = -m_t * v_t                     # the exact impulse that makes slip = 0
 
                     mu_eff = (a.mu*b.mu)**0.5           # same pair rule as penalty
-                    jt = max(-mu_eff*j, min(mu_eff*j, jt))   # Coulomb budget: |jt| ≤ μ·j
+                    lim = mu_eff * jn_acc[i]            # Coulomb budget on the TOTALS: |jt_acc| <= mu*jn_acc
+                    new_t = max(-lim, min(lim, jt_acc[i] + jt))
+                    jt = new_t - jt_acc[i]
+                    jt_acc[i] = new_t
 
                     b.app_impulse( jt*tx,  jt*ty, px, py)
-                    a.app_impulse(-jt*tx, -jt*ty, px, py) 
+                    a.app_impulse(-jt*tx, -jt*ty, px, py)
                 for jnt in self.joints.values():
                     jnt.solve()
     def create_spring(self, links, stretch_res, length, name1, name2, spring_name, mass=1.0):
