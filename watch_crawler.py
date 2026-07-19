@@ -12,7 +12,7 @@ from ppo import Env, Actor
 PPM = 55
 
 def main():
-    actor = Actor(23, 64, 16)
+    actor = Actor(27, 64, 20)
     actor.load_state_dict(torch.load("actor.pt"))
     actor.eval()
 

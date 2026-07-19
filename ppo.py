@@ -45,6 +45,10 @@ class Env():
     def __init__(self, fps=60, max_steps=1000):
         self.reset()
         self.max_steps = max_steps
+        self.contact_penalty = 0.03      # per forbidden body touching the ground, per step
+        # only feet may touch (hands/ulnas are free: no penalty, no reward)
+        self.forbidden = ["trunk", "Rfemur", "Lfemur", "Rtibia", "Ltibia", "Rhumerus", "Lhumerus"]
+        self.clean_bonus = 0.02          # bonus when ONLY feet (or nothing) touch the floor
     def step(self, action):
         acts = torch.clip(action, 0, 1).tolist()   # floats, not tensors -> physics stays in float math
         prev = self.world.bodies["trunk"].x
@@ -62,6 +66,14 @@ class Env():
         n_trunk = self.world.bodies["trunk"]
         rewards = 0
         rewards += n_trunk.x - prev
+        for name in self.forbidden:                   # only feet may bear on the floor
+            if self.world.bodies[name] in self.world.contact_bodies:
+                rewards -= self.contact_penalty
+        touching = self.world.contact_bodies
+        clean = not any(self.world.bodies[n] in touching
+                        for n in self.forbidden + ["Rulna", "Lulna"])
+        if clean:                                     # feet-or-nothing stance: extra pay
+            rewards += self.clean_bonus
         return rewards
 
     def reset(self):
@@ -75,7 +87,8 @@ class Env():
         pairs = [("Rfemur","trunk"), ("Lfemur","trunk"),
                 ("Rhumerus","trunk"), ("Lhumerus","trunk"),
                 ("Rtibia","Rfemur"), ("Ltibia","Lfemur"),
-                ("Rulna","Rhumerus"), ("Lulna","Lhumerus")]
+                ("Rulna","Rhumerus"), ("Lulna","Lhumerus"),
+                ("Rfoot","Rtibia"), ("Lfoot","Ltibia")]
         for child, parent in pairs:
             c, p = self.world.bodies[child], self.world.bodies[parent]
             obs.append(c.theta - p.theta)
@@ -89,8 +102,8 @@ class Env():
         obs.extend([
             1.0 if self.world.bodies["Rulna"] in touching else 0.0,
             1.0 if self.world.bodies["Lulna"] in touching else 0.0,
-            1.0 if self.world.bodies["Rtibia"] in touching else 0.0,
-            1.0 if self.world.bodies["Ltibia"] in touching else 0.0,
+            1.0 if self.world.bodies["Rfoot"] in touching else 0.0,
+            1.0 if self.world.bodies["Lfoot"] in touching else 0.0,
         ])
         return torch.tensor(obs, dtype=torch.float32)
 def rollout(actor, critic, env, steps):
@@ -149,8 +162,8 @@ def update(actor, critic, opt, obs_buf, act_buf, logp_buf, advantages, returns,
         torch.nn.utils.clip_grad_norm_(params, 0.5)
         opt.step()
 def main():
-    actor = Actor(23, 64, 16)
-    critic = Critic(23, 64)
+    actor = Actor(27, 64, 20)
+    critic = Critic(27, 64)
     opt = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=3e-4)
     env = Env()
     log = open("rewards.log", "a")

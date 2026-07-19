@@ -19,8 +19,10 @@ from arm import make_human
 import draw
 
 PPM, CAM = 55, (7.5, 10.0)
-TORQUE_MUSCLES = ["Rhip_f", "Rhip_e", "Lhip_f", "Lhip_e",
-                  "Rsh_f", "Rsh_e", "Lsh_f", "Lsh_e"]
+TORQUE_MUSCLES = ["Rquad", "Rham", "Rhip_f", "Rhip_e", "Rsh_f", "Rsh_e",
+                  "Rbicep", "Rtricep", "Rcal", "Rtib",
+                  "Lquad", "Lham", "Lhip_f", "Lhip_e", "Lsh_f", "Lsh_e",
+                  "Lbicep", "Ltricep", "Lcal", "Ltib"]
 
 
 def build():
