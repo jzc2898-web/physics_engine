@@ -35,15 +35,21 @@ class World:
                 contacts.append(c)
                 self.contact_bodies = {x for c in contacts for x in (c[0], c[1])}
 
-        for a, b, nx, ny, p, px, py in contacts:   
-            beta, slop = 0.2, 0.005
-            corr = max(p - slop, 0) * beta / (a.inv_mass + b.inv_mass)
-            a.x -= corr * a.inv_mass * nx
-            a.y -= corr * a.inv_mass * ny
-            b.x += corr * b.inv_mass * nx
-            b.y += corr * b.inv_mass * ny
-        for jnt in self.joints.values():
-            jnt.correct_position(self.joint_beta)
+        # several positional passes: one 20% nudge per step can't keep up when a
+        # heavy body squeezes a light one (30kg trunk on a 0.5kg foot), so iterate,
+        # shrinking each contact's remaining penetration as corrections apply.
+        beta, slop = 0.2, 0.005
+        pens = [p for (_, _, _, _, p, _, _) in contacts]
+        for _ in range(4):
+            for i, (a, b, nx, ny, _p, px, py) in enumerate(contacts):
+                corr = max(pens[i] - slop, 0) * beta / (a.inv_mass + b.inv_mass)
+                a.x -= corr * a.inv_mass * nx
+                a.y -= corr * a.inv_mass * ny
+                b.x += corr * b.inv_mass * nx
+                b.y += corr * b.inv_mass * ny
+                pens[i] -= max(pens[i] - slop, 0) * beta
+            for jnt in self.joints.values():
+                jnt.correct_position(self.joint_beta)
 
         # accumulated impulses: friction's budget is mu * TOTAL normal impulse so
         # far (not one iteration's), so static grip holds exactly instead of
