@@ -83,6 +83,7 @@ class Env():
 
     def reset(self):
         self.world = World(self.world_fps, 15, 15, solver = "impulse", iters = 10)
+        self.world.bodies["floor"].mu = 1.0        # grippy ground: feet mu_eff ~1.4, dragged limbs ~0.7
         human = make_human(self.world)
         obs = self.get_obs(True)
         self.steps = 0
