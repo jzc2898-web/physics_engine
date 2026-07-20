@@ -168,23 +168,74 @@ def update(actor, critic, opt, obs_buf, act_buf, logp_buf, advantages, returns,
         loss.backward()
         torch.nn.utils.clip_grad_norm_(params, 0.5)
         opt.step()
-def main():
+def _worker(conn, seed):
+    # one persistent env per process: it lives across iterations so long episodes
+    # get experienced end-to-end even though each collect is only ~2048/N steps.
+    torch.set_num_threads(1)                 # 1 core each; no thread fighting
+    torch.manual_seed(seed)
+    env = Env()
+    actor = Actor(27, 64, 20)
+    critic = Critic(27, 64)
+    obs = env.reset()
+    while True:
+        cmd, payload = conn.recv()
+        if cmd == "close":
+            conn.close()
+            break
+        a_sd, c_sd, steps = payload          # fresh weights every iteration (on-policy!)
+        actor.load_state_dict(a_sd)
+        critic.load_state_dict(c_sd)
+        obs_buf, act_buf, logp_buf, val_buf, rew_buf, done_buf = [], [], [], [], [], []
+        for _ in range(steps):
+            with torch.no_grad():
+                d = actor.dist_builder(obs)
+                action = d.sample()
+                logp = d.log_prob(action).sum()
+                value = critic(obs)
+            next_obs, reward, done = env.step(action)
+            obs_buf.append(obs); act_buf.append(action); logp_buf.append(logp)
+            val_buf.append(value); rew_buf.append(reward); done_buf.append(done)
+            obs = env.reset() if done else next_obs
+        conn.send(((obs_buf, act_buf, logp_buf, val_buf, rew_buf, done_buf), obs))
+
+def main(workers=12, total_steps=2048):
+    import multiprocessing as mp
+    import time
     actor = Actor(27, 64, 20)
     critic = Critic(27, 64)
     opt = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=3e-4)
-    env = Env()
+
+    conns, procs = [], []
+    for i in range(workers):
+        parent, child = mp.Pipe()
+        p = mp.Process(target=_worker, args=(child, i), daemon=True)
+        p.start()
+        conns.append(parent); procs.append(p)
+    per = total_steps // workers
+
     log = open("rewards.log", "a")
     for it in range(2000):
-        obs_buf, act_buf, logp_buf, val_buf, rew_buf, done_buf, last_obs = rollout(actor, critic, env, 2048)
-        values = [v.item() for v in val_buf]
-        with torch.no_grad():
-            bootstrap = critic(last_obs).item()
-        advantages, returns = gae(rew_buf, values, done_buf, bootstrap)
+        t0 = time.perf_counter()
+        payload = ("collect", (actor.state_dict(), critic.state_dict(), per))
+        for c in conns:
+            c.send(payload)
 
-        update(actor, critic, opt, obs_buf, act_buf, logp_buf, advantages, returns)
+        obs_buf, act_buf, logp_buf, adv_all, ret_all = [], [], [], [], []
+        ep_reward = 0.0
+        for c in conns:
+            (o, a, l, v, r, dn), last_obs = c.recv()
+            values = [x.item() for x in v]
+            with torch.no_grad():
+                bootstrap = critic(last_obs).item()
+            adv, ret = gae(r, values, dn, bootstrap)   # per-chunk: each worker is its own timeline
+            obs_buf += o; act_buf += a; logp_buf += l
+            adv_all += adv; ret_all += ret
+            ep_reward += sum(r)
 
-        ep_reward = sum(rew_buf)
-        msg = f"iter {it:4d}  reward-sum {ep_reward:8.2f}"
+        update(actor, critic, opt, obs_buf, act_buf, logp_buf, adv_all, ret_all)
+
+        sps = (per * workers) / (time.perf_counter() - t0)
+        msg = f"iter {it:4d}  reward-sum {ep_reward:8.2f}  ({sps:5.0f} steps/s)"
         print(msg, flush=True)
         log.write(msg + "\n"); log.flush()
 
@@ -192,5 +243,7 @@ def main():
             torch.save(actor.state_dict(), "actor.pt")
             torch.save(critic.state_dict(), "critic.pt")
     log.close()
+    for c in conns:
+        c.send(("close", None))
 if __name__ == "__main__":
     main()
