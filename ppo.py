@@ -51,6 +51,7 @@ class Env():
         # only feet may touch (hands/ulnas are free: no penalty, no reward)
         self.forbidden = ["trunk", "Rfemur", "Lfemur", "Rtibia", "Ltibia", "Rhumerus", "Lhumerus"]
         self.handsfree_steps = int(2.0 * self.control_hz)   # hands off 2s -> positive reward x2
+        self.min_height = 0.5            # trunk must be this far above the floor for travel to pay
         self.reset()
     def step(self, action):
         acts = torch.clip(action, 0, 1).tolist()   # floats, not tensors -> physics stays in float math
@@ -67,8 +68,13 @@ class Env():
         return obs, rewards, False
     def get_reward(self, prev):
         n_trunk = self.world.bodies["trunk"]
+        dx = n_trunk.x - prev
+        height = self.world.bodies["floor"].y - n_trunk.y   # y-down: floor minus trunk = elevation
         rewards = 0
-        rewards += n_trunk.x - prev
+        if height >= self.min_height:
+            rewards += dx                # travel only pays when the body is up off the ground
+        else:
+            rewards -= abs(dx)           # sliding along while low actively costs
         for name in self.forbidden:                   # only feet may bear on the floor
             if self.world.bodies[name] in self.world.contact_bodies:
                 rewards -= self.contact_penalty
