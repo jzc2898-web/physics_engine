@@ -52,9 +52,14 @@ class Env():
         self.forbidden = ["trunk", "Rfemur", "Lfemur", "Rtibia", "Ltibia", "Rhumerus", "Lhumerus"]
         self.handsfree_steps = int(2.0 * self.control_hz)   # hands off 2s -> positive reward x2
         self.min_height = 0.5            # trunk must be this far above the floor for travel to pay
+        self.energy_cost = 0.002         # per unit of summed activation, per step: tension is never free
+        self.jerk_cost = 0.005           # per unit of |action - last action|: thrashing costs
         self.reset()
     def step(self, action):
         acts = torch.clip(action, 0, 1).tolist()   # floats, not tensors -> physics stays in float math
+        self.energy = sum(acts)
+        self.jerk = sum(abs(a - p) for a, p in zip(acts, self.prev_acts))
+        self.prev_acts = acts
         prev = self.world.bodies["trunk"].x
         for ac, mu in zip(acts, self.world.muscle_names):
             self.world.springs[mu].set_activation(ac)
@@ -75,6 +80,8 @@ class Env():
             rewards += dx                # travel only pays when the body is up off the ground
         else:
             rewards -= abs(dx)           # sliding along while low actively costs
+        rewards -= self.energy_cost * self.energy     # holding tension costs
+        rewards -= self.jerk_cost * self.jerk         # changing it violently costs more
         for name in self.forbidden:                   # only feet may bear on the floor
             if self.world.bodies[name] in self.world.contact_bodies:
                 rewards -= self.contact_penalty
@@ -94,6 +101,9 @@ class Env():
         obs = self.get_obs(True)
         self.steps = 0
         self.hands_free = 0
+        self.prev_acts = [0.0] * 20
+        self.energy = 0.0
+        self.jerk = 0.0
         return obs
     def get_obs(self, first=False):
         obs = []
